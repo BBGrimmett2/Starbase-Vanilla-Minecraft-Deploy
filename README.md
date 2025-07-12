@@ -19,9 +19,8 @@ A fully automated Ansible playbook to deploy a standalone vanilla Minecraft serv
 ## Requirements
 
 - Target host:
-  - RHEL-compatible system
+  - RHEL-9 system
   - SSH access
-  - Python installed
 - Control machine:
   - `ansible-navigator` installed
   - Internet access to pull the execution environment from Quay.io
@@ -109,3 +108,8 @@ You may also pass variables with `-e` if not using a vars file:
 ├── templates/                  # Service definitions, scripts, etc.
 └── README.md
 ```
+
+## TODO
+
+- OS Agnostic
+- Workflow with VM Deployment
