@@ -1,0 +1,267 @@
+---
+- name: Deploy Minecraft Server
+  hosts: all
+  vars:
+    ops_list: []
+  vars_files: vars/snow.yml
+  pre_tasks:
+    - name: Ensure no existing Minecraft server
+      ignore_errors: true
+      become: true
+      block:
+        - name: Stop existing server
+          ansible.builtin.systemd:
+            name: minecraft.service
+            state: stopped
+
+        - name: Remove /opt/minecraft directory
+          ansible.builtin.file:
+            path: /opt/minecraft/
+            state: absent
+
+    - name: Assert required variables
+      ansible.builtin.assert:
+        that:
+          - environment | trim | length > 0
+          - world_name | trim | length > 0
+          - admin_players | trim | length > 0
+          - max_players | trim | length > 0
+          - justification | trim | length > 0
+          - world_seed | trim | length > 0
+        fail_msg: "Missing required variables."
+
+    
+    - name: Set and validate system memory allocations
+      block:
+        - name: Set memory allocations based on max_players
+          set_fact:
+            min_memory: >-
+              {% if (max_players | int) <= 1 %}
+                512M
+              {% elif (max_players | int) <= 5 %}
+                1G
+              {% elif (max_players | int) <= 10 %}
+                2G
+              {% else %}
+                4G
+              {% endif %}
+            max_memory: >-
+              {% if (max_players | int) <= 1 %}
+                1G
+              {% elif (max_players | int) <= 5 %}
+                2G
+              {% elif (max_players | int) <= 10 %}
+                4G
+              {% else %}
+                6G
+              {% endif %}
+        
+        - name: Convert max_memory to integer MB
+          set_fact:
+            max_memory_mb: >-
+              {% if 'G' in max_memory %}
+                {{ (max_memory | regex_replace('G', '') | int) * 1024 }}
+              {% elif 'M' in max_memory %}
+                {{ max_memory | regex_replace('M', '') | int }}
+              {% else %}
+                {{ max_memory | int }}
+              {% endif %}
+
+        - name: Assert server has enough RAM for max_memory
+          ansible.builtin.assert:
+            that:
+              - ansible_memtotal_mb >= (max_memory_mb | int + 256) # +256M for OS
+            fail_msg: >-
+              Not enough RAM for the configured max_memory ({{ max_memory }}).
+              Total system memory is {{ ansible_memtotal_mb }}MB,
+              required is at least {{ (max_memory_mb | int + 256) }}MB.
+
+        - name: Generate RCON password
+          ansible.builtin.set_fact:
+            rcon_password: "{{ lookup('password', '/dev/null length=16 chars=ascii_letters,digits') }}"
+  tasks:
+    - name: Install packages
+      become: true
+      ansible.builtin.yum:
+        name:
+          - java-21-openjdk-devel
+        state: present
+
+    - name: Create Minecraft directory
+      become: true
+      ansible.builtin.file:
+        path: /opt/minecraft
+        state: directory
+        mode: '0755'
+
+    - name: Download Minecraft server
+      block:
+        - name: Get version manifest
+          ansible.builtin.uri:
+            url: https://launchermeta.mojang.com/mc/game/version_manifest.json
+            return_content: true
+          register: version_manifest
+
+        - name: Extract release metadata URL
+          ansible.builtin.set_fact:
+            latest_version_info_url: >-
+              {{
+                (version_manifest.json.versions |
+                selectattr("id", "equalto", version_manifest.json.latest.release) |
+                list)[0].url
+              }}
+
+        - name: Fetch release metadata
+          ansible.builtin.uri:
+            url: "{{ latest_version_info_url }}"
+            return_content: true
+          register: latest_version_metadata
+
+        - name: Extract server jar URL
+          ansible.builtin.set_fact:
+            server_jar_download_url: "{{ latest_version_metadata.json.downloads.server.url }}"
+
+        - name: Download server.jar
+          become: true
+          ansible.builtin.get_url:
+            url: "{{ server_jar_download_url }}"
+            dest: /opt/minecraft/server.jar
+
+    - name: Generate server files
+      become: true
+      ansible.builtin.shell:
+        cmd: java -jar /opt/minecraft/server.jar --nogui
+        chdir: /opt/minecraft
+      register: generate_output
+      changed_when: true
+      failed_when: "'You need to agree to the EULA' not in generate_output.stdout" 
+
+    - name: Configure Minecraft server
+      become: true
+      block:
+        - name: Accept EULA
+          ansible.builtin.lineinfile:
+            path: /opt/minecraft/eula.txt
+            regexp: '^eula='
+            line: eula=true
+
+        - name: Update server.properties
+          ansible.builtin.lineinfile:
+            path: /opt/minecraft/server.properties
+            regexp: "{{ item.regexp }}"
+            line: "{{ item.line }}"
+            create: true
+          loop:
+            - { regexp: '^max-players=', line: 'max-players={{ max_players }}' }
+            - { regexp: '^level-seed=', line: 'level-seed={{ world_seed }}' }
+            - { regexp: '^level-name=', line: 'level-name={{ world_name }}' }
+            - { regexp: '^enable-rcon=', line: 'enable-rcon=true' }
+            - { regexp: '^rcon.password=', line: 'rcon.password={{ rcon_password }}' }
+
+    - name: Setup systemd service
+      become: true
+      block:
+        - name: Create start.sh
+          ansible.builtin.template:
+            src: templates/start.sh.j2
+            dest: /opt/minecraft/start.sh
+            mode: '0755'
+
+        - name: Create systemd unit file
+          ansible.builtin.template:
+            src: templates/minecraft.service.j2
+            dest: /etc/systemd/system/minecraft.service
+            mode: '0644'
+
+    - name: Enable and start service
+      become: true
+      ansible.builtin.systemd:
+        name: minecraft.service
+        enabled: true
+        state: started
+
+    - name: Configure firewalld
+      become: true
+      ansible.posix.firewalld:
+        port: "{{ item }}"
+        permanent: true
+        state: enabled
+      loop:
+        - 25565/tcp
+        - 25575/tcp
+
+    - name: Pause for server init
+      ansible.builtin.pause:
+        minutes: 2
+
+    - name: Grant admin users
+      block:
+        - name: Split usernames
+          ansible.builtin.set_fact:
+            usernames: "{{ admin_players.split(',') | map('trim') | list }}"
+
+        - name: Validate with Mojang
+          ansible.builtin.uri:
+            url: "https://api.mojang.com/users/profiles/minecraft/{{ item }}"
+            return_content: true
+          loop: "{{ usernames }}"
+          register: uuid_results
+          failed_when: false
+
+        - name: Filter valid users
+          ansible.builtin.set_fact:
+            valid_users: >-
+              {{ uuid_results.results | selectattr('status', 'equalto', 200) | map(attribute='json.name') | list }}
+
+        - name: Grant OP with RCON
+          ansible.builtin.shell: |
+            mcrcon -H {{ ansible_hostname }} -P 25575 -p '{{ rcon_password }}' "op {{ item }}"
+          delegate_to: localhost
+          loop: "{{ valid_users }}"
+
+        - name: Debug granted users
+          ansible.builtin.debug:
+            msg: "Granted OP to: {{ item }}"
+          loop: "{{ valid_users }}"
+
+  post_tasks:
+    - name: Comment on ServiceNow RITM
+      block:
+        - name: Get sys_id
+          ansible.builtin.uri:
+            url: "https://{{ servicenow_instance }}/api/now/table/sc_req_item?sysparm_query=number={{ snow_rtim }}"
+            method: GET
+            user: "{{ servicenow_user }}"
+            password: "{{ servicenow_password }}"
+            force_basic_auth: true
+            headers:
+              Accept: "application/json"
+              Content-Type: "application/json"
+            return_content: true
+          register: ritm_lookup
+
+        - name: Save sys_id
+          ansible.builtin.set_fact:
+            ritm_sys_id: "{{ ritm_lookup.json.result[0].sys_id }}"
+
+        - name: Post comment
+          ansible.builtin.uri:
+            url: "https://{{ servicenow_instance }}/api/now/table/sc_req_item/{{ ritm_sys_id }}"
+            method: PATCH
+            user: "{{ servicenow_user }}"
+            password: "{{ servicenow_password }}"
+            force_basic_auth: true
+            headers:
+              Accept: "application/json"
+              Content-Type: "application/json"
+            body_format: json
+            body:
+              comments: |
+                ✅ Minecraft Server Deployment Complete
+                🌍 World Name: {{ world_name }}
+                🔐 RCON Password: {{ rcon_password }}
+                👥 Admin Players: {{ valid_users | join(', ') }}
+                📦 Max Players: {{ max_players }}
+                🌱 Seed: {{ world_seed }}
+                🖥️ Host: {{ ansible_hostname }}
+          when: snow_rtim is defined and snow_rtim | length > 0

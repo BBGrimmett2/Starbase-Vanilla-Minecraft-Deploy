@@ -1,0 +1,4 @@
+#!/bin/sh
+cd /opt/minecraft
+exec java -Xms{{ min_memory | trim }} -Xmx{{ max_memory | trim }} -XX:+UnlockExperimentalVMOptions -XX:+UseZGC -jar server.jar --nogui
+

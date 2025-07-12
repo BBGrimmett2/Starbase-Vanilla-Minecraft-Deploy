@@ -1,0 +1,25 @@
+---
+version: 3
+
+images:
+  base_image:
+    name: registry.redhat.io/ansible-automation-platform-25/ee-minimal-rhel9:latest
+
+dependencies:
+  galaxy: requirements/requirements.yml
+  system: requirements/bindep.txt
+
+options:
+  package_manager_path: /usr/bin/microdnf
+
+additional_build_steps:
+  append_final:
+    additional_build_steps:
+  append_final:
+    - |
+      RUN git clone https://github.com/Tiiffi/mcrcon.git /tmp/mcrcon && \
+          cd /tmp/mcrcon && \
+          make && \
+          install -m 755 mcrcon /usr/local/bin/mcrcon && \
+          rm -rf /tmp/mcrcon
+    - RUN mcrcon -h
