@@ -1,20 +1,21 @@
 # Starbase Vanilla Minecraft Deploy
 
-A fully automated Ansible playbook to deploy a standalone vanilla Minecraft server. Designed for internal use in a homelab environment, this project leverages Ansible best practices and containerized execution environments for repeatable, auditable Minecraft deployments. Meant for deployment into AAP with ServiceNow integration.
+An Ansible-powered automation playbook for deploying a **Vanilla Minecraft Server** via **Ansible Automation Platform (AAP)**, optionally integrated with **ServiceNow**.
 
----
+This repository demonstrates how enterprise-grade automation tools can be used to provision and manage application environments through **governed, repeatable, and self-service workflows**—using Minecraft as a fun example.
 
-## Features
+## What This Does
 
-- Deploys a clean Minecraft server in `/opt/minecraft`
-- Handles service lifecycle with `systemd`
-- Supports parameterized variables for:
-  - `world_name`, `world_seed`, `max_players`
-  - `admin_players` (ops list)
-  - SNOW/ITSM fields like `justification`, `snow_rtim`
-- Prepares host by stopping and removing any existing server installation
+- Automates the full lifecycle of a Minecraft server:
+  - Validates and parses inputs
+  - Installs Java and system dependencies
+  - Downloads the latest Minecraft server
+  - Configures world settings and RCON access
+  - Sets up a `systemd` service to manage the server
+  - Grants operator access via RCON
+  - Updates a ServiceNow request item with results (optional)
 
----
+This pattern is applicable beyond Minecraft—think Tomcat, .NET apps, training environments, or other baked application stacks.
 
 ## Requirements
 
