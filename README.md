@@ -17,100 +17,78 @@ This repository demonstrates how enterprise-grade automation tools can be used t
 
 This pattern is applicable beyond Minecraft—think Tomcat, .NET apps, training environments, or other baked application stacks.
 
-## Requirements
-
-- Target host:
-  - RHEL-9 system
-  - SSH access
-- Control machine:
-  - `ansible-navigator` installed
-  - Internet access to pull the execution environment from Quay.io
-
----
-
-## Getting Started
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/BBGrimmett2/Starbase-Vanilla-Minecraft-Deploy.git
-cd Starbase-Vanilla-Minecraft-Deploy
-```
-
-### 2. Prepare your inventory
-
-Modify or create an inventory file. Example (`inventory.yml`):
-
-```yaml
-all:
-  hosts:
-    sb-temp01:
-      ansible_user: root
-      ansible_host: 192.168.1.100
-```
-
-### 3. Customize your variables
-
-Edit `vars/snow.yml` or override via `extra_vars`. Required variables include:
-
-snow.yml:
-```yaml
-servicenow_instance: example.snow.com
-servicenow_user: example
-servucenow_password: password
-```
-
-```yaml
-admin_players: "Baconator1013, LucasIsCool"
-world_name: "funbaconworld"
-world_seed: "test12345"
-max_players: "5"
-environment: "dev"
-justification: "Internal test"
-snow_rtim: "RITM0011594"
-```
-
-### 4. Run with Ansible Navigator
-
-Use the containerized execution environment hosted on Quay.io:
-
-```bash
-ansible-navigator run playbook.yml \
-  --eei quay.io/bgrimmet/starbase/mc-ee \
-  --inventory inventory.yml \
-  --mode stdout
-```
-
-You may also pass variables with `-e` if not using a vars file:
-
-```bash
--e '{"admin_players": "Player1, Player2", "world_name": "demo"}'
-```
-
----
-
-## Notes
-
-- The playbook **removes** any existing server under `/opt/minecraft` to ensure clean deployment.
-- The `minecraft.service` is managed with `systemd` and set to auto-start.
-- Updates ServiceNow records
-
----
-
-## Project Structure
+## Repository Structure
 
 ```
 .
-├── inventories/
-│   └── inventory.yml           # Sample inventory
-├── vars/
-│   └── snow.yml                # ServiceNow variable file
-├── playbook.yml                # Main playbook
-├── templates/                  # Service definitions, scripts, etc.
-└── README.md
+├── execution-environment/        # ansible-builder definition for the custom EE
+│   └── mc-ee.yml
+├── playbook.yml                  # Main Ansible playbook
+├── inventories/                  # Example inventory or dynamic inventory sources
+├── templates/
+│   ├── start.sh.j2               # Startup script for Minecraft
+│   └── minecraft.service.j2      # systemd unit file
+└── vars/
+    └── snow.yml                  # Optional ServiceNow credentials/vars
 ```
 
-## TODO
+## Requirements
 
-- OS Agnostic
-- Workflow with VM Deployment
+- Ansible Automation Platform 2.5+
+- A Linux VM or physical server (e.g., provisioned via Proxmox)
+- RHEL-based system (for Java package resolution)
+- A valid inventory entry targeting the host
+- ServiceNow integration via REST API and Ansible Spoke
+- mcrcon (bundled in custom execution environment)
+
+## Custom Execution Environment
+
+This project uses a purpose-built execution environment hosted at:
+
+`quay.io/bgrimmet/starbase/mc-ee`
+
+Or build it locally:
+
+```bash
+cd execution-environment/
+ansible-builder build -v3 -t mc-ee:latest -f mc-ee.yml
+```
+
+Included components:
+
+- `ansible.posix`
+- `community.proxmox`
+- `mcrcon` binary
+- Required system packages for Minecraft deployment
+
+## Running the Playbook with ansible-navigator
+
+```bash
+ansible-navigator run playbook.yml \
+  --eei quay.io/bgrimmet/starbase/mc-ee:latest \
+  -i inventories/proxmox.yml \
+  -m stdout \
+  -e @vars/snow.yml \
+  -e world_name=funworld \
+  -e admin_players="UserOne,UserTwo" \
+  -e max_players="5" \
+  -e snow_rtim="RITM0011600" \
+  -e justification="Just for fun!" \
+  -e world_seed="MySecretSeed"
+```
+
+If using AAP and ServiceNow, these variables can be passed automatically via `extra_vars`.
+
+## Variables
+
+| Variable              | Description                                                | Example                |
+|-----------------------|------------------------------------------------------------|------------------------|
+| `world_name`          | Minecraft world name                                       | `funworld`             |
+| `admin_players`       | Comma-separated Minecraft usernames with OP privileges     | `UserOne,UserTwo`      |
+| `max_players`         | Number of player slots (1, 5, or 10 recommended)           | `5`                    |
+| `world_seed`          | Seed for world generation                                  | `AnsibleRocks`         |
+| `snow_rtim`           | (Optional) Request Item ID from ServiceNow                 | `RITM0011600`          |
+| `justification`       | Justification for the request                              | `Team Testing`         |
+| `servicenow_instance` | ServiceNow URL                                             | `example.snow.com`     |
+| `servicenow_user`     | ServiceNow Username                                        | `dev`                  |
+| `servicenow_password` | ServiceNow Password                                        | `dev`                  |
