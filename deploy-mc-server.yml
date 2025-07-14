@@ -22,7 +22,6 @@
     - name: Assert required variables
       ansible.builtin.assert:
         that:
-          - environment | trim | length > 0
           - world_name | trim | length > 0
           - admin_players | trim | length > 0
           - max_players | trim | length > 0
