@@ -3,3 +3,4 @@ test*
 execution-environment/context/
 *.log
 *.json
+inventories/
