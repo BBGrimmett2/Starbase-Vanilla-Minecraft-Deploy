@@ -25,7 +25,6 @@
           - world_name | trim | length > 0
           - admin_players | trim | length > 0
           - max_players | trim | length > 0
-          - justification | trim | length > 0
           - world_seed | trim | length > 0
         fail_msg: "Missing required variables."
 
@@ -225,6 +224,7 @@
 
   post_tasks:
     - name: Comment on ServiceNow RITM
+      when: snow_rtim is defined and snow_rtim | length > 0
       block:
         - name: "Retrieve RITM"
           servicenow.itsm.api_info:
@@ -253,11 +253,10 @@
             action: patch
             data:
               comments: |
-                ✅ Minecraft Server Deployment Complete
-                🌍 World Name: {{ world_name }}
-                🔐 RCON Password: {{ rcon_password }}
-                👥 Admin Players: {{ valid_users | join(', ') }}
-                📦 Max Players: {{ max_players }}
-                🌱 Seed: {{ world_seed }}
-                🖥️ Host: {{ ansible_hostname }}
-          when: snow_rtim is defined and snow_rtim | length > 0
+                Minecraft Server Deployment Complete
+                World Name: {{ world_name }}
+                RCON Password: {{ rcon_password }}
+                Admin Players: {{ valid_users | join(', ') }}
+                Max Players: {{ max_players }}
+                Seed: {{ world_seed }}
+                Host: {{ ansible_hostname }}
